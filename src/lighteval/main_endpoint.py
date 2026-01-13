@@ -19,131 +19,36 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
-import os
-from typing import Optional
+
 
 import typer
 from typer import Argument, Option
 from typing_extensions import Annotated
 
+from lighteval.cli_args import (
+    HELP_PANEL_NAME_4,
+    custom_tasks,
+    dataset_loading_processes,
+    job_id,
+    load_responses_from_details_date_id,
+    load_tasks_multilingual,
+    max_samples,
+    num_fewshot_seeds,
+    output_dir,
+    public_run,
+    push_to_hub,
+    push_to_tensorboard,
+    reasoning_tags,
+    remove_reasoning_tags,
+    results_org,
+    results_path_template,
+    save_details,
+    tasks,
+    wandb,
+)
+
 
 app = typer.Typer()
-
-
-TOKEN = os.getenv("HF_TOKEN")
-CACHE_DIR: str = os.getenv("HF_HOME", "/scratch")
-
-HELP_PANEL_NAME_1 = "Common Parameters"
-HELP_PANEL_NAME_2 = "Logging Parameters"
-HELP_PANEL_NAME_3 = "Debug Parameters"
-HELP_PANEL_NAME_4 = "Modeling Parameters"
-
-
-@app.command(rich_help_panel="Evaluation Backends")
-def openai(
-    # === general ===
-    model_args: Annotated[
-        str,
-        Argument(
-            help="Model name as a string (has to be available through the openai API) or path to yaml config file (see examples/model_configs/transformers_model.yaml)"
-        ),
-    ],
-    tasks: Annotated[str, Argument(help="Comma-separated list of tasks to evaluate on.")],
-    # === Common parameters ===
-    system_prompt: Annotated[
-        Optional[str], Option(help="Use system prompt for evaluation.", rich_help_panel=HELP_PANEL_NAME_4)
-    ] = None,
-    dataset_loading_processes: Annotated[
-        int, Option(help="Number of processes to use for dataset loading.", rich_help_panel=HELP_PANEL_NAME_1)
-    ] = 1,
-    custom_tasks: Annotated[
-        Optional[str], Option(help="Path to custom tasks directory.", rich_help_panel=HELP_PANEL_NAME_1)
-    ] = None,
-    cache_dir: Annotated[
-        str, Option(help="Cache directory for datasets and models.", rich_help_panel=HELP_PANEL_NAME_1)
-    ] = CACHE_DIR,
-    num_fewshot_seeds: Annotated[
-        int, Option(help="Number of seeds to use for few-shot evaluation.", rich_help_panel=HELP_PANEL_NAME_1)
-    ] = 1,
-    # === saving ===
-    output_dir: Annotated[
-        str, Option(help="Output directory for evaluation results.", rich_help_panel=HELP_PANEL_NAME_2)
-    ] = "results",
-    push_to_hub: Annotated[
-        bool, Option(help="Push results to the huggingface hub.", rich_help_panel=HELP_PANEL_NAME_2)
-    ] = False,
-    push_to_tensorboard: Annotated[
-        bool, Option(help="Push results to tensorboard.", rich_help_panel=HELP_PANEL_NAME_2)
-    ] = False,
-    public_run: Annotated[
-        bool, Option(help="Push results and details to a public repo.", rich_help_panel=HELP_PANEL_NAME_2)
-    ] = False,
-    results_org: Annotated[
-        Optional[str], Option(help="Organization to push results to.", rich_help_panel=HELP_PANEL_NAME_2)
-    ] = None,
-    save_details: Annotated[
-        bool, Option(help="Save detailed, sample per sample, results.", rich_help_panel=HELP_PANEL_NAME_2)
-    ] = False,
-    # === debug ===
-    max_samples: Annotated[
-        Optional[int], Option(help="Maximum number of samples to evaluate on.", rich_help_panel=HELP_PANEL_NAME_3)
-    ] = None,
-    job_id: Annotated[
-        int, Option(help="Optional job id for future reference.", rich_help_panel=HELP_PANEL_NAME_3)
-    ] = 0,
-):
-    """
-    Evaluate OPENAI models.
-    """
-    from lighteval.logging.evaluation_tracker import EvaluationTracker
-    from lighteval.models.endpoints.openai_model import OpenAIModelConfig
-    from lighteval.pipeline import EnvConfig, ParallelismManager, Pipeline, PipelineParameters
-
-    if model_args.endswith(".yaml"):
-        model_config = OpenAIModelConfig.from_path(model_args)
-    else:
-        model_config = OpenAIModelConfig(model=model_args)
-
-    env_config = EnvConfig(token=TOKEN, cache_dir=cache_dir)
-    evaluation_tracker = EvaluationTracker(
-        output_dir=output_dir,
-        save_details=save_details,
-        push_to_hub=push_to_hub,
-        push_to_tensorboard=push_to_tensorboard,
-        public=public_run,
-        hub_results_org=results_org,
-    )
-
-    parallelism_manager = ParallelismManager.OPENAI
-
-    pipeline_params = PipelineParameters(
-        launcher_type=parallelism_manager,
-        env_config=env_config,
-        job_id=job_id,
-        dataset_loading_processes=dataset_loading_processes,
-        custom_tasks_directory=custom_tasks,
-        override_batch_size=-1,  # Cannot override batch size when using OpenAI
-        num_fewshot_seeds=num_fewshot_seeds,
-        max_samples=max_samples,
-        use_chat_template=False,  # Cannot use chat template when using OpenAI
-        system_prompt=system_prompt,
-    )
-    pipeline = Pipeline(
-        tasks=tasks,
-        pipeline_parameters=pipeline_params,
-        evaluation_tracker=evaluation_tracker,
-        model_config=model_config,
-    )
-
-    pipeline.evaluate()
-
-    pipeline.show_results()
-
-    results = pipeline.get_results()
-
-    pipeline.save_and_push_results()
-
-    return results
 
 
 @app.command(rich_help_panel="Evaluation Backends")
@@ -152,7 +57,7 @@ def inference_endpoint(
     model_config_path: Annotated[
         str, Argument(help="Path to model config yaml file. (examples/model_configs/endpoint_model.yaml)")
     ],
-    tasks: Annotated[str, Argument(help="Comma-separated list of tasks to evaluate on.")],
+    tasks: tasks.type,
     free_endpoint: Annotated[
         bool,
         Option(
@@ -161,79 +66,48 @@ def inference_endpoint(
         ),
     ] = False,
     # === Common parameters ===
-    use_chat_template: Annotated[
-        bool, Option(help="Use chat template for evaluation.", rich_help_panel=HELP_PANEL_NAME_4)
-    ] = False,
-    system_prompt: Annotated[
-        Optional[str], Option(help="Use system prompt for evaluation.", rich_help_panel=HELP_PANEL_NAME_4)
-    ] = None,
-    dataset_loading_processes: Annotated[
-        int, Option(help="Number of processes to use for dataset loading.", rich_help_panel=HELP_PANEL_NAME_1)
-    ] = 1,
-    custom_tasks: Annotated[
-        Optional[str], Option(help="Path to custom tasks directory.", rich_help_panel=HELP_PANEL_NAME_1)
-    ] = None,
-    cache_dir: Annotated[
-        str, Option(help="Cache directory for datasets and models.", rich_help_panel=HELP_PANEL_NAME_1)
-    ] = CACHE_DIR,
-    num_fewshot_seeds: Annotated[
-        int, Option(help="Number of seeds to use for few-shot evaluation.", rich_help_panel=HELP_PANEL_NAME_1)
-    ] = 1,
-    load_responses_from_details_date_id: Annotated[
-        Optional[str], Option(help="Load responses from details directory.", rich_help_panel=HELP_PANEL_NAME_1)
-    ] = None,
+    load_tasks_multilingual: load_tasks_multilingual.type = load_tasks_multilingual.default,
+    dataset_loading_processes: dataset_loading_processes.type = dataset_loading_processes.default,
+    custom_tasks: custom_tasks.type = custom_tasks.default,
+    num_fewshot_seeds: num_fewshot_seeds.type = num_fewshot_seeds.default,
+    load_responses_from_details_date_id: load_responses_from_details_date_id.type = load_responses_from_details_date_id.default,
+    remove_reasoning_tags: remove_reasoning_tags.type = remove_reasoning_tags.default,
+    reasoning_tags: reasoning_tags.type = reasoning_tags.default,
     # === saving ===
-    output_dir: Annotated[
-        str, Option(help="Output directory for evaluation results.", rich_help_panel=HELP_PANEL_NAME_2)
-    ] = "results",
-    push_to_hub: Annotated[
-        bool, Option(help="Push results to the huggingface hub.", rich_help_panel=HELP_PANEL_NAME_2)
-    ] = False,
-    push_to_tensorboard: Annotated[
-        bool, Option(help="Push results to tensorboard.", rich_help_panel=HELP_PANEL_NAME_2)
-    ] = False,
-    public_run: Annotated[
-        bool, Option(help="Push results and details to a public repo.", rich_help_panel=HELP_PANEL_NAME_2)
-    ] = False,
-    results_org: Annotated[
-        Optional[str], Option(help="Organization to push results to.", rich_help_panel=HELP_PANEL_NAME_2)
-    ] = None,
-    save_details: Annotated[
-        bool, Option(help="Save detailed, sample per sample, results.", rich_help_panel=HELP_PANEL_NAME_2)
-    ] = False,
+    output_dir: output_dir.type = output_dir.default,
+    results_path_template: results_path_template.type = results_path_template.default,
+    push_to_hub: push_to_hub.type = push_to_hub.default,
+    push_to_tensorboard: push_to_tensorboard.type = push_to_tensorboard.default,
+    public_run: public_run.type = public_run.default,
+    results_org: results_org.type = results_org.default,
+    save_details: save_details.type = save_details.default,
+    wandb: wandb.type = wandb.default,
     # === debug ===
-    max_samples: Annotated[
-        Optional[int], Option(help="Maximum number of samples to evaluate on.", rich_help_panel=HELP_PANEL_NAME_3)
-    ] = None,
-    override_batch_size: Annotated[
-        int, Option(help="Override batch size for evaluation.", rich_help_panel=HELP_PANEL_NAME_3)
-    ] = None,
-    job_id: Annotated[
-        int, Option(help="Optional job id for future reference.", rich_help_panel=HELP_PANEL_NAME_3)
-    ] = 0,
+    max_samples: max_samples.type = max_samples.default,
+    job_id: job_id.type = job_id.default,
 ):
-    """
-    Evaluate models using inference-endpoints as backend.
+    """Evaluate models using inference-endpoints as backend.
+
+    Returns:
+        dict: Evaluation results containing metrics and scores for all tasks
     """
     from lighteval.logging.evaluation_tracker import EvaluationTracker
     from lighteval.models.endpoints.endpoint_model import InferenceEndpointModelConfig, ServerlessEndpointModelConfig
-    from lighteval.pipeline import EnvConfig, ParallelismManager, Pipeline, PipelineParameters
+    from lighteval.pipeline import ParallelismManager, Pipeline, PipelineParameters
 
-    env_config = EnvConfig(token=TOKEN, cache_dir=cache_dir)
     evaluation_tracker = EvaluationTracker(
         output_dir=output_dir,
+        results_path_template=results_path_template,
         save_details=save_details,
         push_to_hub=push_to_hub,
         push_to_tensorboard=push_to_tensorboard,
         public=public_run,
         hub_results_org=results_org,
+        use_wandb=wandb,
     )
-
-    # TODO (nathan): better handling of model_args
 
     parallelism_manager = ParallelismManager.NONE  # since we're using inference endpoints in remote
 
-    # Find a way to add this back
     if free_endpoint:
         model_config = ServerlessEndpointModelConfig.from_path(model_config_path)
     else:
@@ -241,16 +115,15 @@ def inference_endpoint(
 
     pipeline_params = PipelineParameters(
         launcher_type=parallelism_manager,
-        env_config=env_config,
         job_id=job_id,
         dataset_loading_processes=dataset_loading_processes,
         custom_tasks_directory=custom_tasks,
-        override_batch_size=override_batch_size,
         num_fewshot_seeds=num_fewshot_seeds,
         max_samples=max_samples,
-        use_chat_template=use_chat_template,
-        system_prompt=system_prompt,
         load_responses_from_details_date_id=load_responses_from_details_date_id,
+        remove_reasoning_tags=remove_reasoning_tags,
+        reasoning_tags=reasoning_tags,
+        load_tasks_multilingual=load_tasks_multilingual,
     )
     pipeline = Pipeline(
         tasks=tasks,
@@ -276,93 +149,63 @@ def tgi(
     model_config_path: Annotated[
         str, Argument(help="Path to model config yaml file. (examples/model_configs/tgi_model.yaml)")
     ],
-    tasks: Annotated[str, Argument(help="Comma-separated list of tasks to evaluate on.")],
+    tasks: tasks.type,
     # === Common parameters ===
-    use_chat_template: Annotated[
-        bool, Option(help="Use chat template for evaluation.", rich_help_panel=HELP_PANEL_NAME_4)
-    ] = False,
-    system_prompt: Annotated[
-        Optional[str], Option(help="Use system prompt for evaluation.", rich_help_panel=HELP_PANEL_NAME_4)
-    ] = None,
-    dataset_loading_processes: Annotated[
-        int, Option(help="Number of processes to use for dataset loading.", rich_help_panel=HELP_PANEL_NAME_1)
-    ] = 1,
-    custom_tasks: Annotated[
-        Optional[str], Option(help="Path to custom tasks directory.", rich_help_panel=HELP_PANEL_NAME_1)
-    ] = None,
-    cache_dir: Annotated[
-        str, Option(help="Cache directory for datasets and models.", rich_help_panel=HELP_PANEL_NAME_1)
-    ] = CACHE_DIR,
-    num_fewshot_seeds: Annotated[
-        int, Option(help="Number of seeds to use for few-shot evaluation.", rich_help_panel=HELP_PANEL_NAME_1)
-    ] = 1,
-    load_responses_from_details_date_id: Annotated[
-        Optional[str], Option(help="Load responses from details directory.", rich_help_panel=HELP_PANEL_NAME_1)
-    ] = None,
+    load_tasks_multilingual: load_tasks_multilingual.type = load_tasks_multilingual.default,
+    dataset_loading_processes: dataset_loading_processes.type = dataset_loading_processes.default,
+    custom_tasks: custom_tasks.type = custom_tasks.default,
+    num_fewshot_seeds: num_fewshot_seeds.type = num_fewshot_seeds.default,
+    load_responses_from_details_date_id: load_responses_from_details_date_id.type = load_responses_from_details_date_id.default,
+    remove_reasoning_tags: remove_reasoning_tags.type = remove_reasoning_tags.default,
+    reasoning_tags: reasoning_tags.type = reasoning_tags.default,
     # === saving ===
-    output_dir: Annotated[
-        str, Option(help="Output directory for evaluation results.", rich_help_panel=HELP_PANEL_NAME_2)
-    ] = "results",
-    push_to_hub: Annotated[
-        bool, Option(help="Push results to the huggingface hub.", rich_help_panel=HELP_PANEL_NAME_2)
-    ] = False,
-    push_to_tensorboard: Annotated[
-        bool, Option(help="Push results to tensorboard.", rich_help_panel=HELP_PANEL_NAME_2)
-    ] = False,
-    public_run: Annotated[
-        bool, Option(help="Push results and details to a public repo.", rich_help_panel=HELP_PANEL_NAME_2)
-    ] = False,
-    results_org: Annotated[
-        Optional[str], Option(help="Organization to push results to.", rich_help_panel=HELP_PANEL_NAME_2)
-    ] = None,
-    save_details: Annotated[
-        bool, Option(help="Save detailed, sample per sample, results.", rich_help_panel=HELP_PANEL_NAME_2)
-    ] = False,
+    output_dir: output_dir.type = output_dir.default,
+    results_path_template: results_path_template.type = results_path_template.default,
+    push_to_hub: push_to_hub.type = push_to_hub.default,
+    push_to_tensorboard: push_to_tensorboard.type = push_to_tensorboard.default,
+    public_run: public_run.type = public_run.default,
+    results_org: results_org.type = results_org.default,
+    save_details: save_details.type = save_details.default,
+    wandb: wandb.type = wandb.default,
     # === debug ===
-    max_samples: Annotated[
-        Optional[int], Option(help="Maximum number of samples to evaluate on.", rich_help_panel=HELP_PANEL_NAME_3)
-    ] = None,
-    override_batch_size: Annotated[
-        int, Option(help="Override batch size for evaluation.", rich_help_panel=HELP_PANEL_NAME_3)
-    ] = -1,
-    job_id: Annotated[
-        int, Option(help="Optional job id for future reference.", rich_help_panel=HELP_PANEL_NAME_3)
-    ] = 0,
+    max_samples: max_samples.type = max_samples.default,
+    job_id: job_id.type = job_id.default,
 ):
-    """
-    Evaluate models using TGI as backend.
+    """Evaluate models using TGI as backend.
+
+    Returns:
+        dict: Evaluation results containing metrics and scores for all tasks
     """
     from lighteval.logging.evaluation_tracker import EvaluationTracker
     from lighteval.models.endpoints.tgi_model import TGIModelConfig
-    from lighteval.pipeline import EnvConfig, ParallelismManager, Pipeline, PipelineParameters
+    from lighteval.pipeline import ParallelismManager, Pipeline, PipelineParameters
 
-    env_config = EnvConfig(token=TOKEN, cache_dir=cache_dir)
     evaluation_tracker = EvaluationTracker(
         output_dir=output_dir,
+        results_path_template=results_path_template,
         save_details=save_details,
         push_to_hub=push_to_hub,
         push_to_tensorboard=push_to_tensorboard,
         public=public_run,
         hub_results_org=results_org,
+        use_wandb=wandb,
     )
 
-    # TODO (nathan): better handling of model_args
     parallelism_manager = ParallelismManager.TGI
 
     model_config = TGIModelConfig.from_path(model_config_path)
 
     pipeline_params = PipelineParameters(
         launcher_type=parallelism_manager,
-        env_config=env_config,
+        load_tasks_multilingual=load_tasks_multilingual,
         job_id=job_id,
         dataset_loading_processes=dataset_loading_processes,
         custom_tasks_directory=custom_tasks,
-        override_batch_size=override_batch_size,
         num_fewshot_seeds=num_fewshot_seeds,
         max_samples=max_samples,
-        use_chat_template=use_chat_template,
-        system_prompt=system_prompt,
         load_responses_from_details_date_id=load_responses_from_details_date_id,
+        remove_reasoning_tags=remove_reasoning_tags,
+        reasoning_tags=reasoning_tags,
     )
     pipeline = Pipeline(
         tasks=tasks,
@@ -391,98 +234,162 @@ def litellm(
             help="config file path for the litellm model, or a comma separated string of model args (model_name={},base_url={},provider={})"
         ),
     ],
-    tasks: Annotated[str, Argument(help="Comma-separated list of tasks to evaluate on.")],
+    tasks: tasks.type,
     # === Common parameters ===
-    use_chat_template: Annotated[
-        bool, Option(help="Use chat template for evaluation.", rich_help_panel=HELP_PANEL_NAME_4)
-    ] = False,
-    system_prompt: Annotated[
-        Optional[str], Option(help="Use system prompt for evaluation.", rich_help_panel=HELP_PANEL_NAME_4)
-    ] = None,
-    dataset_loading_processes: Annotated[
-        int, Option(help="Number of processes to use for dataset loading.", rich_help_panel=HELP_PANEL_NAME_1)
-    ] = 1,
-    custom_tasks: Annotated[
-        Optional[str], Option(help="Path to custom tasks directory.", rich_help_panel=HELP_PANEL_NAME_1)
-    ] = None,
-    cache_dir: Annotated[
-        str, Option(help="Cache directory for datasets and models.", rich_help_panel=HELP_PANEL_NAME_1)
-    ] = CACHE_DIR,
-    num_fewshot_seeds: Annotated[
-        int, Option(help="Number of seeds to use for few-shot evaluation.", rich_help_panel=HELP_PANEL_NAME_1)
-    ] = 1,
-    load_responses_from_details_date_id: Annotated[
-        Optional[str], Option(help="Load responses from details directory.", rich_help_panel=HELP_PANEL_NAME_1)
-    ] = None,
+    load_tasks_multilingual: load_tasks_multilingual.type = load_tasks_multilingual.default,
+    dataset_loading_processes: dataset_loading_processes.type = dataset_loading_processes.default,
+    num_fewshot_seeds: num_fewshot_seeds.type = num_fewshot_seeds.default,
+    custom_tasks: custom_tasks.type = custom_tasks.default,
+    load_responses_from_details_date_id: load_responses_from_details_date_id.type = load_responses_from_details_date_id.default,
+    remove_reasoning_tags: remove_reasoning_tags.type = remove_reasoning_tags.default,
+    reasoning_tags: reasoning_tags.type = reasoning_tags.default,
     # === saving ===
-    output_dir: Annotated[
-        str, Option(help="Output directory for evaluation results.", rich_help_panel=HELP_PANEL_NAME_2)
-    ] = "results",
-    push_to_hub: Annotated[
-        bool, Option(help="Push results to the huggingface hub.", rich_help_panel=HELP_PANEL_NAME_2)
-    ] = False,
-    push_to_tensorboard: Annotated[
-        bool, Option(help="Push results to tensorboard.", rich_help_panel=HELP_PANEL_NAME_2)
-    ] = False,
-    public_run: Annotated[
-        bool, Option(help="Push results and details to a public repo.", rich_help_panel=HELP_PANEL_NAME_2)
-    ] = False,
-    results_org: Annotated[
-        Optional[str], Option(help="Organization to push results to.", rich_help_panel=HELP_PANEL_NAME_2)
-    ] = None,
-    save_details: Annotated[
-        bool, Option(help="Save detailed, sample per sample, results.", rich_help_panel=HELP_PANEL_NAME_2)
-    ] = False,
+    output_dir: output_dir.type = output_dir.default,
+    results_path_template: results_path_template.type = results_path_template.default,
+    push_to_hub: push_to_hub.type = push_to_hub.default,
+    push_to_tensorboard: push_to_tensorboard.type = push_to_tensorboard.default,
+    public_run: public_run.type = public_run.default,
+    results_org: results_org.type = results_org.default,
+    save_details: save_details.type = save_details.default,
+    wandb: wandb.type = wandb.default,
     # === debug ===
-    max_samples: Annotated[
-        Optional[int], Option(help="Maximum number of samples to evaluate on.", rich_help_panel=HELP_PANEL_NAME_3)
-    ] = None,
-    override_batch_size: Annotated[
-        int, Option(help="Override batch size for evaluation.", rich_help_panel=HELP_PANEL_NAME_3)
-    ] = -1,
-    job_id: Annotated[
-        int, Option(help="Optional job id for future refenrence.", rich_help_panel=HELP_PANEL_NAME_3)
-    ] = 0,
+    max_samples: max_samples.type = max_samples.default,
+    job_id: job_id.type = job_id.default,
 ):
+    """Evaluate models using LiteLLM as backend.
+
+    Returns:
+        dict: Evaluation results containing metrics and scores for all tasks
     """
-    Evaluate models using LiteLLM as backend.
-    """
+    import yaml
 
     from lighteval.logging.evaluation_tracker import EvaluationTracker
-    from lighteval.models.litellm_model import LiteLLMModelConfig
-    from lighteval.pipeline import EnvConfig, ParallelismManager, Pipeline, PipelineParameters
+    from lighteval.models.endpoints.litellm_model import LiteLLMModelConfig
+    from lighteval.pipeline import ParallelismManager, Pipeline, PipelineParameters
 
-    env_config = EnvConfig(token=TOKEN, cache_dir=cache_dir)
     evaluation_tracker = EvaluationTracker(
         output_dir=output_dir,
+        results_path_template=results_path_template,
         save_details=save_details,
         push_to_hub=push_to_hub,
         push_to_tensorboard=push_to_tensorboard,
         public=public_run,
         hub_results_org=results_org,
+        use_wandb=wandb,
     )
 
-    # TODO (nathan): better handling of model_args
     parallelism_manager = ParallelismManager.NONE
 
     if model_args.endswith(".yaml"):
+        with open(model_args, "r") as f:
+            config = yaml.safe_load(f)
+        metric_options = config.get("metric_options", {})
         model_config = LiteLLMModelConfig.from_path(model_args)
     else:
-        model_name = model_args.split(",")[0].strip()
-        model_config = LiteLLMModelConfig(model=model_name)
+        metric_options = None
+        model_config = LiteLLMModelConfig.from_args(model_args)
 
     pipeline_params = PipelineParameters(
         launcher_type=parallelism_manager,
-        env_config=env_config,
+        load_tasks_multilingual=load_tasks_multilingual,
         job_id=job_id,
         dataset_loading_processes=dataset_loading_processes,
         custom_tasks_directory=custom_tasks,
-        override_batch_size=override_batch_size,
         num_fewshot_seeds=num_fewshot_seeds,
         max_samples=max_samples,
-        use_chat_template=use_chat_template,
-        system_prompt=system_prompt,
         load_responses_from_details_date_id=load_responses_from_details_date_id,
+        remove_reasoning_tags=remove_reasoning_tags,
+        reasoning_tags=reasoning_tags,
+    )
+    pipeline = Pipeline(
+        tasks=tasks,
+        pipeline_parameters=pipeline_params,
+        evaluation_tracker=evaluation_tracker,
+        model_config=model_config,
+        metric_options=metric_options,
+    )
+
+    pipeline.evaluate()
+
+    pipeline.show_results()
+
+    results = pipeline.get_results()
+
+    pipeline.save_and_push_results()
+
+    return results
+
+
+@app.command(rich_help_panel="Evaluation Backends")
+def inference_providers(
+    # === general ===
+    model_args: Annotated[
+        str,
+        Argument(
+            help="config file path for the inference provider model, or a comma separated string of model args (model_name={},provider={},generation={temperature: 0.6})"
+        ),
+    ],
+    tasks: tasks.type,
+    # === Common parameters ===
+    load_tasks_multilingual: load_tasks_multilingual.type = load_tasks_multilingual.default,
+    dataset_loading_processes: dataset_loading_processes.type = dataset_loading_processes.default,
+    custom_tasks: custom_tasks.type = custom_tasks.default,
+    num_fewshot_seeds: num_fewshot_seeds.type = num_fewshot_seeds.default,
+    # === saving ===
+    output_dir: output_dir.type = output_dir.default,
+    results_path_template: results_path_template.type = results_path_template.default,
+    push_to_hub: push_to_hub.type = push_to_hub.default,
+    push_to_tensorboard: push_to_tensorboard.type = push_to_tensorboard.default,
+    public_run: public_run.type = public_run.default,
+    results_org: results_org.type = results_org.default,
+    save_details: save_details.type = save_details.default,
+    wandb: wandb.type = wandb.default,
+    remove_reasoning_tags: remove_reasoning_tags.type = remove_reasoning_tags.default,
+    reasoning_tags: reasoning_tags.type = reasoning_tags.default,
+    # === debug ===
+    max_samples: max_samples.type = max_samples.default,
+    job_id: job_id.type = job_id.default,
+):
+    """Evaluate models using HuggingFace's inference providers as backend.
+
+    Returns:
+        dict: Evaluation results containing metrics and scores for all tasks
+    """
+    from lighteval.logging.evaluation_tracker import EvaluationTracker
+    from lighteval.models.endpoints.inference_providers_model import (
+        InferenceProvidersModelConfig,
+    )
+    from lighteval.pipeline import ParallelismManager, Pipeline, PipelineParameters
+
+    evaluation_tracker = EvaluationTracker(
+        output_dir=output_dir,
+        results_path_template=results_path_template,
+        save_details=save_details,
+        push_to_hub=push_to_hub,
+        push_to_tensorboard=push_to_tensorboard,
+        public=public_run,
+        hub_results_org=results_org,
+        use_wandb=wandb,
+    )
+
+    parallelism_manager = ParallelismManager.NONE
+
+    if model_args.endswith(".yaml"):
+        model_config = InferenceProvidersModelConfig.from_path(model_args)
+    else:
+        model_config = InferenceProvidersModelConfig.from_args(model_args)
+
+    pipeline_params = PipelineParameters(
+        launcher_type=parallelism_manager,
+        load_tasks_multilingual=load_tasks_multilingual,
+        job_id=job_id,
+        dataset_loading_processes=dataset_loading_processes,
+        custom_tasks_directory=custom_tasks,
+        num_fewshot_seeds=num_fewshot_seeds,
+        max_samples=max_samples,
+        load_responses_from_details_date_id=None,
+        remove_reasoning_tags=remove_reasoning_tags,
+        reasoning_tags=reasoning_tags,
     )
     pipeline = Pipeline(
         tasks=tasks,

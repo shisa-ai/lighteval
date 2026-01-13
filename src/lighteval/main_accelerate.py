@@ -21,179 +21,121 @@
 # SOFTWARE.
 
 import logging
-import os
-from typing import Optional
 
-from typer import Argument, Option
+from typer import Option
 from typing_extensions import Annotated
+
+from lighteval.cli_args import (
+    HELP_PANEL_NAME_4,
+    custom_tasks,
+    dataset_loading_processes,
+    job_id,
+    load_responses_from_details_date_id,
+    load_tasks_multilingual,
+    max_samples,
+    model_args,
+    num_fewshot_seeds,
+    output_dir,
+    public_run,
+    push_to_hub,
+    push_to_tensorboard,
+    reasoning_tags,
+    remove_reasoning_tags,
+    results_org,
+    results_path_template,
+    save_details,
+    tasks,
+    wandb,
+)
 
 
 logger = logging.getLogger(__name__)
 
-TOKEN = os.getenv("HF_TOKEN")
-CACHE_DIR: str = os.getenv("HF_HOME")
-
-HELP_PANEL_NAME_1 = "Common Parameters"
-HELP_PANEL_NAME_2 = "Logging Parameters"
-HELP_PANEL_NAME_3 = "Debug Parameters"
-HELP_PANEL_NAME_4 = "Modeling Parameters"
-
 
 def accelerate(  # noqa C901
     # === general ===
-    model_args: Annotated[
-        str,
-        Argument(
-            help="Model arguments in the form key1=value1,key2=value2,... or path to yaml config file (see examples/model_configs/transformers_model.yaml)"
-        ),
-    ],
-    tasks: Annotated[str, Argument(help="Comma-separated list of tasks to evaluate on.")],
+    model_args: model_args.type,
+    tasks: tasks.type,
     # === Common parameters ===
-    use_chat_template: Annotated[
-        bool, Option(help="Use chat template for evaluation.", rich_help_panel=HELP_PANEL_NAME_4)
+    vision_model: Annotated[
+        bool, Option(help="Use vision model for evaluation.", rich_help_panel=HELP_PANEL_NAME_4)
     ] = False,
-    system_prompt: Annotated[
-        Optional[str], Option(help="Use system prompt for evaluation.", rich_help_panel=HELP_PANEL_NAME_4)
-    ] = None,
-    dataset_loading_processes: Annotated[
-        int, Option(help="Number of processes to use for dataset loading.", rich_help_panel=HELP_PANEL_NAME_1)
-    ] = 1,
-    custom_tasks: Annotated[
-        Optional[str], Option(help="Path to custom tasks directory.", rich_help_panel=HELP_PANEL_NAME_1)
-    ] = None,
-    cache_dir: Annotated[
-        Optional[str], Option(help="Cache directory for datasets and models.", rich_help_panel=HELP_PANEL_NAME_1)
-    ] = None,
-    num_fewshot_seeds: Annotated[
-        int, Option(help="Number of seeds to use for few-shot evaluation.", rich_help_panel=HELP_PANEL_NAME_1)
-    ] = 1,
-    load_responses_from_details_date_id: Annotated[
-        Optional[str], Option(help="Load responses from details directory.", rich_help_panel=HELP_PANEL_NAME_1)
-    ] = None,
+    custom_tasks: custom_tasks.type = custom_tasks.default,
+    load_tasks_multilingual: load_tasks_multilingual.type = load_tasks_multilingual.default,
+    dataset_loading_processes: dataset_loading_processes.type = dataset_loading_processes.default,
+    num_fewshot_seeds: num_fewshot_seeds.type = num_fewshot_seeds.default,
+    load_responses_from_details_date_id: load_responses_from_details_date_id.type = load_responses_from_details_date_id.default,
+    remove_reasoning_tags: remove_reasoning_tags.type = remove_reasoning_tags.default,
+    reasoning_tags: reasoning_tags.type = reasoning_tags.default,
     # === saving ===
-    output_dir: Annotated[
-        str, Option(help="Output directory for evaluation results.", rich_help_panel=HELP_PANEL_NAME_2)
-    ] = "results",
-    push_to_hub: Annotated[
-        bool, Option(help="Push results to the huggingface hub.", rich_help_panel=HELP_PANEL_NAME_2)
-    ] = False,
-    push_to_tensorboard: Annotated[
-        bool, Option(help="Push results to tensorboard.", rich_help_panel=HELP_PANEL_NAME_2)
-    ] = False,
-    public_run: Annotated[
-        bool, Option(help="Push results and details to a public repo.", rich_help_panel=HELP_PANEL_NAME_2)
-    ] = False,
-    results_org: Annotated[
-        Optional[str], Option(help="Organization to push results to.", rich_help_panel=HELP_PANEL_NAME_2)
-    ] = None,
-    save_details: Annotated[
-        bool, Option(help="Save detailed, sample per sample, results.", rich_help_panel=HELP_PANEL_NAME_2)
-    ] = False,
+    output_dir: output_dir.type = output_dir.default,
+    results_path_template: results_path_template.type = results_path_template.default,
+    push_to_hub: push_to_hub.type = push_to_hub.default,
+    push_to_tensorboard: push_to_tensorboard.type = push_to_tensorboard.default,
+    public_run: public_run.type = public_run.default,
+    results_org: results_org.type = results_org.default,
+    save_details: save_details.type = save_details.default,
+    wandb: wandb.type = wandb.default,
     # === debug ===
-    max_samples: Annotated[
-        Optional[int], Option(help="Maximum number of samples to evaluate on.", rich_help_panel=HELP_PANEL_NAME_3)
-    ] = None,
-    override_batch_size: Annotated[
-        int, Option(help="Override batch size for evaluation.", rich_help_panel=HELP_PANEL_NAME_3)
-    ] = -1,
-    job_id: Annotated[
-        int, Option(help="Optional job id for future reference.", rich_help_panel=HELP_PANEL_NAME_3)
-    ] = 0,
+    max_samples: max_samples.type = max_samples.default,
+    job_id: job_id.type = job_id.default,
 ):
-    """
-    Evaluate models using accelerate and transformers as backend.
-    """
-    from datetime import timedelta
+    """Evaluate models using accelerate and transformers as backend.
 
-    import torch
+    Returns:
+        dict: Evaluation results containing metrics and scores for all tasks
+    """
     import yaml
-    from accelerate import Accelerator, InitProcessGroupKwargs
 
     from lighteval.logging.evaluation_tracker import EvaluationTracker
-    from lighteval.models.model_input import GenerationParameters
+    from lighteval.models.abstract_model import ModelConfig
     from lighteval.models.transformers.adapter_model import AdapterModelConfig
     from lighteval.models.transformers.delta_model import DeltaModelConfig
-    from lighteval.models.transformers.transformers_model import BitsAndBytesConfig, TransformersModelConfig
-    from lighteval.pipeline import EnvConfig, ParallelismManager, Pipeline, PipelineParameters
-
-    accelerator = Accelerator(kwargs_handlers=[InitProcessGroupKwargs(timeout=timedelta(seconds=3000))])
-    cache_dir = CACHE_DIR
-
-    env_config = EnvConfig(token=TOKEN, cache_dir=cache_dir)
+    from lighteval.models.transformers.transformers_model import TransformersModelConfig
+    from lighteval.models.transformers.vlm_transformers_model import VLMTransformersModelConfig
+    from lighteval.pipeline import ParallelismManager, Pipeline, PipelineParameters
 
     evaluation_tracker = EvaluationTracker(
         output_dir=output_dir,
+        results_path_template=results_path_template,
         save_details=save_details,
         push_to_hub=push_to_hub,
         push_to_tensorboard=push_to_tensorboard,
         public=public_run,
         hub_results_org=results_org,
+        use_wandb=wandb,
     )
     pipeline_params = PipelineParameters(
         launcher_type=ParallelismManager.ACCELERATE,
-        env_config=env_config,
+        custom_tasks_directory=custom_tasks,
+        load_tasks_multilingual=load_tasks_multilingual,
         job_id=job_id,
         dataset_loading_processes=dataset_loading_processes,
-        custom_tasks_directory=custom_tasks,
-        override_batch_size=override_batch_size,
         num_fewshot_seeds=num_fewshot_seeds,
         max_samples=max_samples,
-        use_chat_template=use_chat_template,
-        system_prompt=system_prompt,
+        remove_reasoning_tags=remove_reasoning_tags,
+        reasoning_tags=reasoning_tags,
         load_responses_from_details_date_id=load_responses_from_details_date_id,
     )
 
-    # TODO (nathan): better handling of model_args
     if model_args.endswith(".yaml"):
         with open(model_args, "r") as f:
-            config = yaml.safe_load(f)["model"]
-
-        # Creating optional quantization configuration
-        if config["base_params"]["dtype"] == "4bit":
-            quantization_config = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_compute_dtype=torch.float16)
-        elif config["base_params"]["dtype"] == "8bit":
-            quantization_config = BitsAndBytesConfig(load_in_8bit=True)
-        else:
-            quantization_config = None
-
-        # We extract the model args
-        args_dict = {k.split("=")[0]: k.split("=")[1] for k in config["base_params"]["model_args"].split(",")}
-
-        args_dict["generation_parameters"] = GenerationParameters.from_dict(config)
-
-        # We store the relevant other args
-        args_dict["base_model"] = config["merged_weights"]["base_model"]
-        args_dict["compile"] = bool(config["base_params"]["compile"])
-        args_dict["dtype"] = config["base_params"]["dtype"]
-        args_dict["accelerator"] = accelerator
-        args_dict["quantization_config"] = quantization_config
-        args_dict["batch_size"] = override_batch_size
-        args_dict["multichoice_continuations_start_space"] = config["generation"][
-            "multichoice_continuations_start_space"
-        ]
-        args_dict["use_chat_template"] = use_chat_template
-
-        # Keeping only non null params
-        args_dict = {k: v for k, v in args_dict.items() if v is not None}
-
-        if config["merged_weights"].get("delta_weights", False):
-            if config["merged_weights"]["base_model"] is None:
-                raise ValueError("You need to specify a base model when using delta weights")
-            model_config = DeltaModelConfig(**args_dict)
-        elif config["merged_weights"].get("adapter_weights", False):
-            if config["merged_weights"]["base_model"] is None:
-                raise ValueError("You need to specify a base model when using adapter weights")
-            model_config = AdapterModelConfig(**args_dict)
-        elif config["merged_weights"]["base_model"] not in ["", None]:
-            raise ValueError("You can't specify a base model if you are not using delta/adapter weights")
-        else:
-            model_config = TransformersModelConfig(**args_dict)
+            config = yaml.safe_load(f)["model_parameters"]
     else:
-        model_args_dict: dict = {k.split("=")[0]: k.split("=")[1] if "=" in k else True for k in model_args.split(",")}
-        model_args_dict["accelerator"] = accelerator
-        model_args_dict["use_chat_template"] = use_chat_template
-        model_args_dict["compile"] = bool(model_args_dict["compile"]) if "compile" in model_args_dict else False
-        model_config = TransformersModelConfig(**model_args_dict)
+        # We extract the model args
+        config: dict = ModelConfig._parse_args(model_args)
+
+    if config.get("delta_weights", False):
+        config.pop("delta_weights")
+        model_config = DeltaModelConfig(**config)
+    elif config.get("adapter_weights", False):
+        config.pop("adapter_weights")
+        model_config = AdapterModelConfig(**config)
+    else:
+        if vision_model:
+            model_config = VLMTransformersModelConfig(**config)
+        else:
+            model_config = TransformersModelConfig(**config)
 
     pipeline = Pipeline(
         tasks=tasks,
@@ -207,7 +149,8 @@ def accelerate(  # noqa C901
     pipeline.show_results()
 
     results = pipeline.get_results()
+    details = pipeline.get_details()
 
     pipeline.save_and_push_results()
 
-    return results
+    return results, details

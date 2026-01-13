@@ -20,11 +20,11 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+import re
 from typing import Callable
 
 from typing_extensions import NotRequired, TypedDict
 
-from lighteval.tasks.default_prompts import hellaswag_preprocess
 from lighteval.tasks.templates.continuation import get_continuation_prompt_function
 from lighteval.tasks.templates.multichoice import create_adapter_from_dict
 from lighteval.tasks.templates.utils.formatting_utils import (
@@ -40,6 +40,26 @@ from lighteval.utils.language import Language
 
 # NLI Cause/Effect (Copa)
 HELLASWAG_QUERY = "{activity_label}{ctx}"
+
+
+def hellaswag_preprocess(
+    text: str,
+    wikihow_artifacts: list[str] = [" [title]"],
+    truncate_dots: bool = False,
+    strip_text: bool = False,
+    dot_replacement: str = ". ",
+):
+    """Comes from LM Eval Harness"""
+    # NOTE: Brackets are artifacts of the WikiHow dataset portion of HellaSwag.
+    for wikihow_artifact in wikihow_artifacts:
+        text = text.replace(wikihow_artifact, dot_replacement)
+    text = re.sub("\\[.*?\\]", "", text)
+    text = text.replace("  ", " ")
+    if truncate_dots:
+        text = text.replace(r"\.+", r"\.")
+    if strip_text:
+        text = text.strip()
+    return text
 
 
 class HellaswagInput(TypedDict):
@@ -66,8 +86,7 @@ def get_hellaswag_prompt_function(
     formulation: Formulation = MCFFormulation(),
     wikihow_artifacts: list[str] = [" [title]"],
 ):
-    """
-    Create a templated prompt function for a Hellaswag task.
+    """Create a templated prompt function for a Hellaswag task.
 
     Format:
     Context Premise therefore/cause | (Continuation 1, Continuation 2, Continuation 3)
@@ -78,13 +97,12 @@ def get_hellaswag_prompt_function(
             Must map data from the dataset row to the HellaswagInput format.
             Note: The gold_idx must be an index or list of indices in the continuations list, indicating the correct continuation(s).
         formulation (Formulation, optional): The formulation to use for the task. Defaults to MCFFormulation().
-        wikihow_artifacts (list[str], optional): A list of strings to replace with dot. We have to replace the the texts with dots because
+        wikihow_artifacts (list[str], optional): A list of strings to replace with dot. We have to replace the texts with dots because
             of wikihow source.
 
     Returns:
         Callable: A function that generates COPA prompts based on the given parameters.
     """
-
     translation_literals = TRANSLATION_LITERALS[language]
 
     def process_context(ctx):

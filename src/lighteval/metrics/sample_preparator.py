@@ -26,6 +26,10 @@ from dataclasses import asdict, dataclass
 
 import numpy as np
 
+from lighteval.models.model_output import ModelResponse
+from lighteval.tasks.requests import Doc
+from lighteval.utils.utils import as_list
+
 
 logger = logging.getLogger(__name__)
 
@@ -56,22 +60,40 @@ class PerplexityCorpusMetricInput(CorpusMetricInput):
     weights: list[int]
 
 
-class GenerativePreparator:
+class Preparator:
+    pass
+
+
+class GenerativePreparator(Preparator):
     @staticmethod
-    def prepare(golds: list[str], predictions: list[str], **kwargs):
+    def prepare(doc: Doc, model_response: ModelResponse, **kwargs):
         """Prepares an individual generative example to the format expected by metrics computed at the corpus level (aggregated).
 
         Args:
-            golds (list[str]): List of allowed targets for the current example
-            predictions (list[str]): List of generated predictions for the current example.
+            doc (Doc): The document containing gold references.
+            model_response (ModelResponse): The model's response containing predictions.
+            **kwargs: Additional keyword arguments.
 
         Returns:
             GenerativeCorpusMetricInput: Stores the golds and predictions as such
         """
+        golds = as_list(doc.get_golds())
+        predictions = model_response.final_text
         return GenerativeCorpusMetricInput(golds=golds, preds=predictions)
 
+    def __str__(self):
+        attrs = vars(self)
+        attr_strs = []
+        for k, v in attrs.items():
+            if callable(v):
+                val_str = v.__name__
+            else:
+                val_str = str(v)
+            attr_strs.append(f"{k}={val_str}")
+        return f"{self.__class__.__name__}({', '.join(attr_strs)})"
 
-class LoglikelihoodPreparator:
+
+class LoglikelihoodPreparator(Preparator):
     def __init__(self, is_single_token: bool = False):
         """Init.
 
@@ -81,17 +103,20 @@ class LoglikelihoodPreparator:
         """
         self.is_single_token = is_single_token
 
-    def prepare(self, gold_ixs: list[int], choices_logprob: list[float], **kwargs) -> LogprobCorpusMetricInput:
+    def prepare(self, doc: Doc, model_response: ModelResponse, **kwargs) -> LogprobCorpusMetricInput:
         """Prepares an individual loglikelihood example to the format expected by metrics computed at the corpus level (aggregated).
 
         Args:
-            golds_ixs (list[int]): List of the gold indices among the possible choices
-            choices_logprob (list[float]): List of each choice's aggregated logprobs (usually with an average or weighted average).
+            doc (Doc): The document containing gold indices and choices.
+            model_response (ModelResponse): The model's response containing logprobs.
+            **kwargs: Additional keyword arguments.
 
         Returns:
             LogprobCorpusMetricInput: Stores the golds indices and the model's choice (choice with the highest logprob)
                 Only the first gold index is taken for a single token loglikelihood metric
         """
+        gold_ixs = as_list(doc.gold_index)
+        choices_logprob = model_response.logprobs
         if self.is_single_token:
             if len(gold_ixs) > 1:
                 logger.warning(
@@ -102,7 +127,52 @@ class LoglikelihoodPreparator:
         return LogprobCorpusMetricInput(golds=gold_ixs, preds=np.argmax(choices_logprob))
 
 
-class PerplexityPreparator:
+class TargetPerplexityPreparator(Preparator):
+    def __init__(self, units_type: str) -> None:
+        """Init.
+
+        Args:
+            units_type (str): Basic type of text units we want to use to weight perplexity computations.
+                Can be `words` or `bytes`
+
+        Raises:
+            ValueError: If the unit type is not words or byte, raises a ValueError
+        """
+        if units_type not in ["words", "bytes"]:
+            raise ValueError("Perplexity must be computed at either the word or byte level.")
+        self.units_type = units_type
+
+    def count_units(self, text: str) -> int:
+        """Counts the given number of unit in the input text.
+
+        Args:
+            text (str): Input text
+
+        Returns:
+            int: Number of units of type `self.units_type` in the input text.
+        """
+        if self.units_type == "words":
+            return len(re.split(r"\s+", text))
+        if self.units_type == "bytes":
+            return len(text.encode("utf-8"))
+
+    def prepare(self, doc: Doc, model_response: ModelResponse, **kwargs):
+        """Prepares an individual perplexity example to the format expected by metrics computed at the corpus level (aggregated).
+
+        Args:
+            doc (Doc): The document containing gold references.
+            model_response (ModelResponse): The model's response containing logprobs.
+            **kwargs: Additional keyword arguments.
+
+        Returns:
+            PerplexityCorpusMetricInput: Stores the measured logprobs and associated text lengths, counted in the reference unit.
+        """
+        logprobs_flat = np.sum(model_response.logprobs)
+        reference_text_flat = " ".join(doc.get_golds())
+        return PerplexityCorpusMetricInput(logprobs=logprobs_flat, weights=self.count_units(reference_text_flat))
+
+
+class PerplexityPreparator(Preparator):
     def __init__(self, units_type: str) -> None:
         """Init.
 
@@ -131,17 +201,22 @@ class PerplexityPreparator:
         if self.units_type == "bytes":
             return len(text.encode("utf-8"))
 
-    def prepare(self, logprobs: list[float], reference_texts: list[str], **kwargs):
+    def prepare(self, doc: Doc, model_response: ModelResponse, **kwargs):
         """Prepares an individual perplexity example to the format expected by metrics computed at the corpus level (aggregated).
 
         Args:
-            logprobs (list[float]): List of the log-probabilities computed for each item of the sequence or single aggregated logprob over the sequence
-            reference_text (str): Current reference text for which to compute the length in self.units_type
+            doc (Doc): The document containing gold references.
+            model_response (ModelResponse): The model's response containing logprobs.
+            **kwargs: Additional keyword arguments.
 
         Returns:
             PerplexityCorpusMetricInput: Stores the measured logprobs and associated text lengths, counted in the reference unit.
         """
+        logprobs_flat = np.sum(model_response.logprobs)
 
-        logprobs_flat = np.sum(logprobs)
-        reference_text_flat = " ".join(reference_texts)
+        if doc.original_query is not None:
+            reference_text_flat = " ".join([doc.original_query])
+        else:
+            reference_text_flat = " ".join([doc.query])
+
         return PerplexityCorpusMetricInput(logprobs=logprobs_flat, weights=self.count_units(reference_text_flat))

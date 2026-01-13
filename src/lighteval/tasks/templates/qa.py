@@ -44,8 +44,7 @@ class QAAdapter(TypedDict):
 
 
 def get_qa_prompt_function(language: Language, adapter: Callable[[dict], QAInput | None] | QAAdapter):
-    """
-    Create a templated prompt function for a QA task.
+    """Create a templated prompt function for a QA task.
     Example tasks:
     - XQuAD
     - SQuAD
@@ -62,7 +61,6 @@ def get_qa_prompt_function(language: Language, adapter: Callable[[dict], QAInput
     Returns:
         Callable: A function that generates QA prompts based on the given parameters.
     """
-
     adapter_fn = create_adapter_from_dict(adapter)
 
     def adapter_for_mcq(line: dict) -> MCQInput | None:
@@ -70,9 +68,12 @@ def get_qa_prompt_function(language: Language, adapter: Callable[[dict], QAInput
         if input_data is None:
             return None
 
+        choices = list(set(input_data["choices"]))
+
         return {
             **input_data,
-            "gold_idx": list(range(len(input_data["choices"]))),
+            "gold_idx": list(range(len(choices))),
+            "choices": choices,
         }
 
     multichoice_prompt_fn = get_mcq_prompt_function(language, adapter=adapter_for_mcq, formulation=CFFormulation())

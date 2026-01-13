@@ -40,8 +40,8 @@ MULTI_CHOICE_QA_QUERY = (
 
 # Defined for type hinting only
 class MCQInput(TypedDict):
-    """
-    Input for the multiple choice task.
+    """Input for the multiple choice task.
+
     Args:
         question: The question to be answered (e.g. What is the capital of France?)
         choices: Possible choices for the question (e.g. [Paris, London, Berlin, Rome])
@@ -58,8 +58,8 @@ class MCQInput(TypedDict):
 
 
 class MCQDictAdapter(TypedDict):
-    """
-    Adapter for mapping from the dataset row into the MCQInput format.
+    """Adapter for mapping from the dataset row into the MCQInput format.
+
     Args:
         question: Column name in the row that contains the question to be answered (e.g. What is the capital of France?)
         choices: Column name in the row that contains the possible choices for the question (e.g. [Paris, London, Berlin, Rome])
@@ -83,8 +83,7 @@ def get_mcq_prompt_function(
     adapter: Callable[[dict], MCQInput | None] | MCQDictAdapter,
     formulation: Formulation = MCFFormulation(),
 ):
-    """
-    Create a templated prompt function for a Multiple Choice Question (MCQ) task.
+    """Create a templated prompt function for a Multiple Choice Question (MCQ) task.
     Example tasks:
     - ARC
     - TruthfulQA
@@ -119,7 +118,6 @@ def get_mcq_prompt_function(
     Returns:
         Callable: A function that generates MCQ prompts based on the given parameters.
     """
-
     adapter_fn = create_adapter_from_dict(adapter)
 
     def prompt_fn(line, task_name: str):
@@ -136,7 +134,7 @@ def get_mcq_prompt_function(
         context = f"{capitalize(fix_ending_punct(context_val, translation_literals))}\n" if context_val else ""
 
         question = capitalize(fix_ending_punct(mcq_input["question"], translation_literals))
-        answers = [capitalize(fix_ending_punct(answer, translation_literals)) for answer in mcq_input["choices"]]
+        answers = [capitalize(fix_ending_punct(str(answer), translation_literals)) for answer in mcq_input["choices"]]
 
         options = build_choices(answers, formulation, translation_literals)
         options = f"{options}\n" if options else ""

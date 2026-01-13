@@ -21,41 +21,25 @@
 # SOFTWARE.
 
 
-import os
-from typing import Optional
-
-from typer import Argument, Option
-from typing_extensions import Annotated
-
-
-CACHE_DIR: str = os.getenv("HF_HOME", "/scratch")
-
-HELP_PANEL_NAME_1 = "Common Parameters"
-HELP_PANEL_NAME_2 = "Logging Parameters"
-HELP_PANEL_NAME_3 = "Debug Parameters"
-HELP_PANEL_NAME_4 = "Modeling Parameters"
+from lighteval.cli_args import (
+    custom_tasks,
+    dataset_loading_processes,
+    load_tasks_multilingual,
+    max_samples,
+    output_dir,
+    tasks,
+)
 
 
 def baseline(
-    tasks: Annotated[str, Argument(help="Comma-separated list of tasks to evaluate on.")],
-    cache_dir: Annotated[
-        str, Option(help="Cache directory for datasets and models.", rich_help_panel=HELP_PANEL_NAME_1)
-    ] = CACHE_DIR,
-    custom_tasks: Annotated[
-        Optional[str], Option(help="Path to custom tasks directory.", rich_help_panel=HELP_PANEL_NAME_1)
-    ] = None,
-    dataset_loading_processes: Annotated[
-        int, Option(help="Number of processes to use for dataset loading.", rich_help_panel=HELP_PANEL_NAME_1)
-    ] = 1,
-    output_dir: Annotated[
-        str, Option(help="Output directory for evaluation results.", rich_help_panel=HELP_PANEL_NAME_2)
-    ] = "results",
-    max_samples: Annotated[
-        Optional[int], Option(help="Maximum number of samples to evaluate on.", rich_help_panel=HELP_PANEL_NAME_3)
-    ] = None,
+    tasks: tasks.type,
+    load_tasks_multilingual: load_tasks_multilingual.type = load_tasks_multilingual.default,
+    dataset_loading_processes: dataset_loading_processes.type = dataset_loading_processes.default,
+    custom_tasks: custom_tasks.type = custom_tasks.default,
+    output_dir: output_dir.type = output_dir.default,
+    max_samples: max_samples.type = max_samples.default,
 ):
-    """
-    Compute baselines for given tasks.
+    """Compute baselines for given tasks.
 
     It has been tested with generative and accuracy tasks, but may not work correctly for other task types.
 
@@ -68,15 +52,13 @@ def baseline(
         This baseline computation may not be suitable for all task types and should be used with caution.
     """
     from lighteval.logging.evaluation_tracker import EvaluationTracker
-    from lighteval.metrics.utils.metric_utils import MetricCategory
-    from lighteval.models.abstract_model import ModelInfo
     from lighteval.tasks.lighteval_task import LightevalTask
-    from lighteval.tasks.registry import Registry, taskinfo_selector
+    from lighteval.tasks.registry import Registry
+    from lighteval.tasks.requests import SamplingMethod
     from lighteval.utils.utils import as_list
 
-    task_registry = Registry(cache_dir=cache_dir, custom_tasks=custom_tasks)
-    task_names_list, fewshots_dict = taskinfo_selector(tasks, task_registry)
-    task_dict = task_registry.get_task_dict(task_names_list)
+    registry = Registry(tasks=tasks, custom_tasks=custom_tasks, load_multilingual=load_tasks_multilingual)
+    tasks_dict: dict[str, LightevalTask] = registry.load_tasks()
 
     evaluation_tracker = EvaluationTracker(
         output_dir=output_dir,
@@ -87,18 +69,13 @@ def baseline(
         hub_results_org=None,
     )
     evaluation_tracker.general_config_logger.log_model_info(
-        ModelInfo(
-            model_name="lighteval/baseline",
-            model_sha=None,
-            model_dtype=None,
-            model_size=None,
-        )
+        model_config=None,
     )
-    evaluation_tracker.task_config_logger.log(task_dict)
+    evaluation_tracker.task_config_logger.log(tasks_dict)
 
-    LightevalTask.load_datasets(list(task_dict.values()), dataset_loading_processes)
+    LightevalTask.load_datasets(tasks_dict, dataset_loading_processes)
 
-    for task_name, task in task_dict.items():
+    for task_name, task in tasks_dict.items():
         task_docs = list(task.eval_docs())
         n_samples = min(max_samples, len(task_docs)) if max_samples else len(task_docs)
 
@@ -107,15 +84,11 @@ def baseline(
         ]
 
         metric_results = {
-            metric.metric_name: p_correct_score
-            if metric.category
-            in [MetricCategory.MULTICHOICE, MetricCategory.MULTICHOICE_PMI, MetricCategory.MULTICHOICE_ONE_TOKEN]
-            else 0
+            metric.metric_name: p_correct_score if metric.category in [SamplingMethod.LOGPROBS] else 0
             for metric in task.metrics
         }
 
-        for fewshots, _ in fewshots_dict[task_name]:
-            evaluation_tracker.metrics_logger.log(f"{task_name}|{fewshots}", metric_results)
+        evaluation_tracker.metrics_logger.log(task_name, metric_results)
 
-    evaluation_tracker.metrics_logger.aggregate(task_dict=task_dict, bootstrap_iters=1000)
+    evaluation_tracker.metrics_logger.aggregate(task_dict=tasks_dict, bootstrap_iters=1000)
     evaluation_tracker.save()
